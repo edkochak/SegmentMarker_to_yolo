@@ -1,0 +1,3 @@
+imagesize
+numpy
+PyYAML
