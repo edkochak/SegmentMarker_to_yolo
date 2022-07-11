@@ -31,21 +31,21 @@ def parse_data(path):
         for obj in frame.find('FrameObjects'):
             if frame_id not in data:
                 data[frame_id] = []
-            data[frame_id].append({})
+            item_data = {}
 
-            data[frame_id][-1]['type'] = obj.find('type').text.strip()
-            data[frame_id][-1]['rect'] = obj.find('rect').text.strip()
-            if obj.findall('subType')== [] and obj.findall('flags') == []:
-                data[frame_id].pop()
+            item_data['type'] = obj.find('type').text.strip()
+            item_data['rect'] = obj.find('rect').text.strip()
+            if obj.findall('subType') == [] and obj.findall('flags') == []:
                 continue
             elif obj.findall('subType') == []:
-                data[frame_id][-1]['subtype'] = obj.findall('flags')[
+                item_data['subtype'] = obj.findall('flags')[
                     0].text.strip()
             else:
-                data[frame_id][-1]['subtype'] = obj.findall('subType')[
+                item_data['subtype'] = obj.findall('subType')[
                     0].text.strip()
 
-            data[frame_id][-1]['vertices'] = obj.find('vertices').text.strip()
+            item_data['vertices'] = obj.find('vertices').text.strip()
+            data[frame_id].append(item_data)
 
     return classes, data
 
@@ -64,37 +64,56 @@ def create_yaml(result, classes_data, path_to_train_images, path_to_val_images):
         yaml.dump(data, f, default_flow_style=False)
 
 
-def transfer(source, result, count_test, one_class=None):
+def transfer(source, result, count_test, one_class, ifsegs, add_to):
     re_seasons = '\w+.\d{3}'
+    re_segs = '\w+-\w+-\d{3}_\d{3}'
     re_episode_frames = '\w+.\d{3}.\d{3}.\w+'
 
-    path_to_train_labels = os.path.join(result, 'train', 'labels')
-    path_to_train_images = os.path.join(result, 'train', 'images')
-    os.makedirs(path_to_train_labels)
-    os.makedirs(path_to_train_images)
-    path_to_val_labels = os.path.join(result, 'val', 'labels')
-    path_to_val_images = os.path.join(result, 'val', 'images')
-    os.makedirs(path_to_val_labels)
-    os.makedirs(path_to_val_images)
+    if add_to is None:
+        path_to_train_labels = os.path.join(result, 'train', 'labels')
+        path_to_train_images = os.path.join(result, 'train', 'images')
+        os.makedirs(path_to_train_labels)
+        os.makedirs(path_to_train_images)
+        path_to_val_labels = os.path.join(result, 'val', 'labels')
+        path_to_val_images = os.path.join(result, 'val', 'images')
+        os.makedirs(path_to_val_labels)
+        os.makedirs(path_to_val_images)
+    else:
+        path_to_train_labels = os.path.join(add_to, 'train', 'labels')
+        path_to_train_images = os.path.join(add_to, 'train', 'images')
+        path_to_val_labels = os.path.join(add_to, 'val', 'labels')
+        path_to_val_images = os.path.join(add_to, 'val', 'images')
+        max_file_name_test = max(
+            map(lambda x: int(x.replace('.txt', '')), os.listdir(path_to_val_labels)), default=0)
+        max_file_name_train = max(
+            map(lambda x: int(x.replace('.txt', '')), os.listdir(path_to_train_labels)), default=0)
+    season_or_segs = os.listdir(source)
+    if not ifsegs:
+        with open(os.path.join(source, '#classes.json'), 'r') as f:
+            classes_data = json.loads(f.read())
+    else:
+        with open(os.path.join(source, season_or_segs[0], '#classes.json'), 'r') as f:
+            classes_data = json.loads(f.read())
 
-    with open(os.path.join(source, '#classes.json'), 'r') as f:
-        classes_data = json.loads(f.read())
-
+    season_or_segs = os.listdir(source)
     # Парсим классы
     if one_class is None:
-        classes_data = [(item.get("subType")or item.get("subtype")) or str(item.get("flags")) 
+        classes_data = [(item.get("subType") or item.get("subtype")) or str(item.get("flags"))
                         for item in classes_data[0]['classes']]
-        
+
     else:
         classes_data = [one_class]
     # создаем yaml файл
     print(classes_data)
-    create_yaml(result, classes_data, path_to_train_images, path_to_val_images)
+    if add_to is None:
+        create_yaml(result, classes_data,
+                    path_to_train_images, path_to_val_images)
 
     count = 1
-    for season in filter(lambda x: re.fullmatch(re_seasons, x), os.listdir(source)):
-        i_season = season.split('.')[1]
-        season_name = season.split('.')[0]
+    for season in filter(lambda x: re.fullmatch(re_seasons if not ifsegs else re_segs, x), season_or_segs):
+        if not ifsegs:
+            i_season = season.split('.')[1]
+            season_name = season.split('.')[0]
 
         path_to_season = os.path.join(source, season)
         files_in_season = os.listdir(path_to_season)
@@ -130,9 +149,12 @@ def transfer(source, result, count_test, one_class=None):
                     file = list(filter(lambda file: re.fullmatch(
                         re_frame, file), files_in_episode))[0]
                     file_format = file.split('.')[-1]
-                    new_file_name = f'{count}.{file_format}'
+                    if add_to is None:
+                        new_file_name = f'{count}.{file_format}'
+                    else:
+
+                        new_file_name = f'{max_file_name_train +count if count > count_test else max_file_name_test+count}.{file_format}'
                     path_to_frame = os.path.join(path_to_episode_frames, file)
- 
                     # копируем фотографию
                     shutil.copy(path_to_frame, os.path.join(
                         path_to_images, new_file_name))
@@ -141,15 +163,14 @@ def transfer(source, result, count_test, one_class=None):
                     label_text = []
 
                     for obj in data[i_file]:
-                        
+
                         vertices = list(map(int, obj.get('vertices').split()))
                         if one_class is None:
                             class_id = classes_data.index(obj['subtype'])
                         else:
                             class_id = 0
 
-
-                        #Абсолютные координаты -> относительные
+                        # Абсолютные координаты -> относительные
                         for n, vert in enumerate(vertices):
                             if n % 2 == 0:
                                 vertices[n] = str(round(vert/width, 4))
@@ -157,7 +178,7 @@ def transfer(source, result, count_test, one_class=None):
                                 vertices[n] = str(round(vert/height, 4))
                         label_text.append(f'{class_id} {" ".join(vertices)}')
                     # записываем данные
-                    with open(os.path.join(path_to_labels, f'{count}.txt'), 'w') as f:
+                    with open(os.path.join(path_to_labels, new_file_name.replace(f'.{file_format}', '.txt')), 'w') as f:
                         f.write('\n'.join(label_text))
 
                     count += 1
@@ -176,7 +197,12 @@ if __name__ == '__main__':
                         help='Количество кадров в test датасете')
     parser.add_argument("-one_class", default=None,
                         help='Название класса, который будет включать в себе все остальные')
+    parser.add_argument("-segs", default=0, type=int,
+                        help='Является ли датасет SegmentMarker сегментированным')
+    parser.add_argument("-add_to", default=None,
+                        help='Добавить к существующему датасету YOLOV5')
 
     args = parser.parse_args()
 
-    transfer(args.source, args.result, args.count_test, args.one_class)
+    transfer(args.source, args.result, args.count_test,
+             args.one_class, args.segs, args.add_to)
