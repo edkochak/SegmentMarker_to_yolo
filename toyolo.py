@@ -38,8 +38,7 @@ def parse_data(path):
             if obj.findall('subType') == [] and obj.findall('flags') == []:
                 continue
             elif obj.findall('subType') == []:
-                item_data['subtype'] = obj.findall('flags')[
-                    0].text.strip()
+                continue
             else:
                 item_data['subtype'] = obj.findall('subType')[
                     0].text.strip()
@@ -92,7 +91,7 @@ def transfer(source, result, count_test, one_class, ifsegs, add_to):
         with open(os.path.join(source, '#classes.json'), 'r') as f:
             classes_data = json.loads(f.read())
     else:
-        with open(os.path.join(source, season_or_segs[0], '#classes.json'), 'r') as f:
+        with open(os.path.join(source, '#classes.json'), 'r') as f:
             classes_data = json.loads(f.read())
 
     season_or_segs = os.listdir(source)
@@ -110,15 +109,16 @@ def transfer(source, result, count_test, one_class, ifsegs, add_to):
                     path_to_train_images, path_to_val_images)
 
     count = 1
-    for season in filter(lambda x: re.fullmatch(re_seasons if not ifsegs else re_segs, x), season_or_segs):
-        if not ifsegs:
-            i_season = season.split('.')[1]
-            season_name = season.split('.')[0]
+    for season in (filter(lambda x: re.fullmatch(re_seasons, x), season_or_segs) if not ifsegs else ['']) :
+        
 
         path_to_season = os.path.join(source, season)
         files_in_season = os.listdir(path_to_season)
 
         for episode in filter(lambda x: re.fullmatch(re_episode_frames, x), files_in_season):
+            
+            i_season = episode.split('.')[1]
+            season_name = episode.split('.')[0]
             path_to_episode_frames = os.path.join(path_to_season, episode)
             mark = episode.split('.')[3]
             i_episode = episode.split('.')[2]
